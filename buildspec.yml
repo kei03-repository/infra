@@ -1,0 +1,13 @@
+﻿version: 0.2
+
+phases:
+  install:
+    commands:
+      - terraform version
+  build:
+    commands:
+      - terraform -chdir=environments/dev init -backend=false
+      - terraform -chdir=environments/dev validate
+artifacts:
+  files:
+    - '**/*'
