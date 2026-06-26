@@ -2,7 +2,7 @@
 
 この `infra` はアプリ本体とは独立した、AWS インフラ定義用のリポジトリです。
 
-現在は CloudFormation ベースで管理しています。
+現在は Terraform ベースで管理しています。
 
 GitHub Actions は `infra` 配下ではなく、workspace 直下の `.github/workflows/` で app と合わせて一元管理します。
 
@@ -10,24 +10,59 @@ GitHub Actions は `infra` 配下ではなく、workspace 直下の `.github/wor
 
 ```text
 infra/
-└─ cloudformation/
-   ├─ common/
-   │  ├─ all/
-   │  ├─ dev/
-   │  └─ prd/
-   └─ kintai/
-      ├─ dev/
-      ├─ prd/
-      └─ README.md
+├─ environments/
+│  ├─ dev/
+│  │  ├─ main.tf
+│  │  ├─ providers.tf
+│  │  ├─ variables.tf
+│  │  ├─ outputs.tf
+│  │  └─ versions.tf
+│  └─ prod/
+│     ├─ main.tf
+│     ├─ providers.tf
+│     ├─ variables.tf
+│     ├─ outputs.tf
+│     └─ versions.tf
+├─ modules/
+│  ├─ acm/
+│  ├─ alb/
+│  ├─ cloudwatch/
+│  ├─ ecr/
+│  ├─ ecs_cluster/
+│  ├─ iam/
+│  ├─ kms/
+│  ├─ network/
+│  ├─ route53/
+│  ├─ s3/
+│  └─ security_group/
+├─ products/
+│  └─ kintai/
+│     ├─ environments/
+│     │  ├─ dev/
+│     │  │  ├─ backend.hcl
+│     │  │  └─ terraform.tfvars
+│     │  └─ prod/
+│     │     ├─ backend.hcl
+│     │     └─ terraform.tfvars
+│     └─ modules/
+│        ├─ backend/
+│        ├─ dynamodb/
+│        ├─ ecs_service/
+│        ├─ frontend/
+│        ├─ lambda/
+│        └─ rds/
+├─ scripts/
+├─ buildspec.yml
+└─ CIDRブロック設計方針.md
 ```
 
 ## 役割
 
-- `cloudformation/common/`: 複数アプリで共有する基盤定義
-- `cloudformation/common/all/`: 全環境共通のテンプレート
-- `cloudformation/common/dev/`: 開発環境向け共通定義
-- `cloudformation/common/prd/`: 本番環境向け共通定義
-- `cloudformation/kintai/`: kintai アプリ専用のインフラ定義
+- `environments/`: 共通基盤の環境別エントリポイント（`dev` / `prod`）
+- `modules/`: 共通で再利用する Terraform モジュール
+- `products/kintai/modules/`: kintai 固有の Terraform モジュール
+- `products/kintai/environments/`: kintai 固有の環境設定（state backend, tfvars）
+- `scripts/`: Terraform 操作補助スクリプト置き場
 
 ## GitHub Actions との関係
 
@@ -36,12 +71,12 @@ infra/
 
 ## 今後の増やし方
 
-将来的にアプリごとのリポジトリを増やす場合も、この `infra` 側にアプリ単位のディレクトリを追加していきます。
+将来的にアプリを増やす場合は、`products/` 配下にアプリ単位で追加します。
 
 例:
 
-- `cloudformation/kintai/`
-- `cloudformation/app-b/`
-- `cloudformation/app-c/`
+- `products/kintai/`
+- `products/app-b/`
+- `products/app-c/`
 
-共通基盤は `common/` に、アプリ固有の基盤は `cloudformation/<app-name>/` に寄せる方針です。
+共通基盤は `environments/` + `modules/` に、アプリ固有の基盤は `products/<app-name>/` に寄せる方針です。
