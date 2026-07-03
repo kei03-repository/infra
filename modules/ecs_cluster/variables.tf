@@ -1,8 +1,7 @@
-variable "name" {
+variable "product_name" {
   type = string
 }
 
-variable "tags" {
-  type    = map(string)
-  default = {}
+variable "environment" {
+  type = string
 }

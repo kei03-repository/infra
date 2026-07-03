@@ -1,41 +1,33 @@
-resource "aws_security_group" "alb" {
-  name   = "${var.name_prefix}-alb-sg"
+resource "aws_security_group" "this" {
+  name   = "${var.environment}--${var.product_name}--${var.security_group_name}-sg"
   vpc_id = var.vpc_id
 
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  dynamic "ingress" {
+    for_each = var.ingress_rules
+
+    content {
+      from_port       = ingress.value.from_port
+      to_port         = ingress.value.to_port
+      protocol        = ingress.value.protocol
+      cidr_blocks     = try(ingress.value.cidr_blocks, null)
+      security_groups = try(ingress.value.security_groups, null)
+    }
   }
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+  dynamic "egress" {
+    for_each = var.egress_rules
+
+    content {
+      from_port       = egress.value.from_port
+      to_port         = egress.value.to_port
+      protocol        = egress.value.protocol
+      cidr_blocks     = try(egress.value.cidr_blocks, null)
+      security_groups = try(egress.value.security_groups, null)
+    }
   }
 
-  tags = merge(var.tags, { Name = "${var.name_prefix}-alb-sg" })
-}
-
-resource "aws_security_group" "app" {
-  name   = "${var.name_prefix}-app-sg"
-  vpc_id = var.vpc_id
-
-  ingress {
-    from_port       = var.app_port
-    to_port         = var.app_port
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
+  tags = {
+    Name        = "${var.environment}--${var.product_name}--${var.security_group_name}-sg"
+    ProductName = var.product_name
   }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = merge(var.tags, { Name = "${var.name_prefix}-app-sg" })
 }

@@ -18,22 +18,56 @@ module "network" {
 }
 
 module "security_group" {
-  source      = "../../modules/security_group"
-  name_prefix = local.name_prefix
-  vpc_id      = module.network.vpc_id
-  app_port    = var.app_port
-  tags        = local.common_tags
+  for_each = toset(["alb", "app", "db"])
+
+  source              = "../../modules/security_group"
+  product_name        = var.project_name
+  environment         = var.environment
+  vpc_id              = module.network.vpc_id
+  security_group_name = each.key
+
+  ingress_rules = each.key == "alb" ? [
+    {
+      from_port   = 80
+      to_port     = 80
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  ] : each.key == "app" ? [
+    {
+      from_port       = var.app_port
+      to_port         = var.app_port
+      protocol        = "tcp"
+      security_groups = [module.security_group["alb"].security_group_id]
+    }
+  ] : [
+    {
+      from_port       = var.db_port
+      to_port         = var.db_port
+      protocol        = "tcp"
+      security_groups = [module.security_group["app"].security_group_id]
+    }
+  ]
+
+  egress_rules = [
+    {
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  ]
 }
 
 module "alb" {
-  source            = "../../modules/alb"
-  name_prefix       = local.name_prefix
-  vpc_id            = module.network.vpc_id
-  subnet_ids        = module.network.public_subnet_ids
-  alb_sg_id         = module.security_group.alb_sg_id
-  target_port       = var.app_port
-  health_check_path = var.health_check_path
-  tags              = local.common_tags
+  source                = "../../modules/alb"
+  product_name          = var.project_name
+  environment           = var.environment
+  vpc_id                = module.network.vpc_id
+  subnet_ids            = module.network.public_subnet_ids
+  alb_security_group_id = module.security_group["alb"].security_group_id
+  target_port           = var.app_port
+  health_check_path     = var.health_check_path
 }
 
 module "ecs_cluster" {
@@ -61,8 +95,9 @@ module "kms" {
 }
 
 module "artifact_bucket" {
-  source      = "../../modules/s3"
-  bucket_name = var.artifact_bucket_name
-  kms_key_arn = module.kms.kms_key_arn
-  tags        = local.common_tags
+  source       = "../../modules/s3"
+  product_name = var.project_name
+  environment  = var.environment
+  bucket_name  = var.artifact_bucket_name
+  kms_key_arn  = module.kms.kms_key_arn
 }
