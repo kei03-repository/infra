@@ -1,0 +1,7 @@
+{
+  "terraformVersion": "1.9.8",
+  "terraformStateBucketName": "REPLACE_WITH_DEV_TERRAFORM_STATE_BUCKET",
+  "terraformLockTableName": "terraform-lock-dev",
+  "terraformDistributionKey": "terraform/1.9.8/terraform_1.9.8_linux_amd64.zip",
+  "tfInAutomation": "1"
+}

@@ -1,0 +1,351 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: dev環境共通リソース (S3、DynamoDB、CodeBuild/CodePipeline IAMロール)
+
+Parameters:
+  TerraformStateBucketName:
+    Type: String
+    Description: Terraform stateを保管するS3バケット名
+    MinLength: 3
+  TerraformLockTableName:
+    Type: String
+    Description: Terraform stateロック用DynamoDBテーブル名
+    Default: terraform-lock-dev
+
+Resources:
+# ---------------------------------------------------------------
+# S3: CodePipeline Artifact bucket
+# ---------------------------------------------------------------
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Environment
+          Value: dev
+        - Key: ProductName
+          Value: common
+        - Key: ManagedBy
+          Value: CloudFormation
+
+# ---------------------------------------------------------------
+# S3: Terraform 配布バケット (共通設定 JSON / Terraform ZIP)
+# ---------------------------------------------------------------
+  TerraformDistributionBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Environment
+          Value: dev
+        - Key: ProductName
+          Value: common
+        - Key: ManagedBy
+          Value: CloudFormation
+
+# ---------------------------------------------------------------
+# S3: Terraform State bucket
+# ---------------------------------------------------------------
+  TerraformStateBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref TerraformStateBucketName
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Environment
+          Value: dev
+        - Key: ProductName
+          Value: common
+        - Key: ManagedBy
+          Value: CloudFormation
+
+# ---------------------------------------------------------------
+# DynamoDB: Terraform State lock table
+# ---------------------------------------------------------------
+  TerraformLockTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Ref TerraformLockTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: LockID
+          AttributeType: S
+      KeySchema:
+        - AttributeName: LockID
+          KeyType: HASH
+      Tags:
+        - Key: Environment
+          Value: dev
+        - Key: ProductName
+          Value: common
+        - Key: ManagedBy
+          Value: CloudFormation
+
+# ---------------------------------------------------------------
+# IAM: CodeBuild role for IAM Terraform projects
+# ---------------------------------------------------------------
+  CodeBuildIamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: dev-terraform-iam-codebuild-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/dev--*--iam*"
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: terraform-iam-codebuild-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*"
+              - Sid: ArtifactStore
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt ArtifactBucket.Arn
+                  - !Sub "${ArtifactBucket.Arn}/*"
+              - Sid: TerraformState
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !GetAtt TerraformStateBucket.Arn
+                  - !Sub "${TerraformStateBucket.Arn}/*"
+              - Sid: TerraformStateLock
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                Resource: !GetAtt TerraformLockTable.Arn
+              - Sid: TerraformDistribution
+                Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub "${TerraformDistributionBucket.Arn}/config/terraform-build.json"
+                  - !Sub "${TerraformDistributionBucket.Arn}/terraform/*"
+              - Sid: TerraformManagedResources
+                Effect: Allow
+                Action:
+                  - iam:*
+                Resource: "*"
+
+# ---------------------------------------------------------------
+# IAM: CodeBuild role for network Terraform projects
+# ---------------------------------------------------------------
+  CodeBuildNetworkRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: dev-terraform-network-codebuild-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/dev--*--network*"
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: terraform-network-codebuild-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*"
+              - Sid: ArtifactStore
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt ArtifactBucket.Arn
+                  - !Sub "${ArtifactBucket.Arn}/*"
+              - Sid: TerraformState
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !GetAtt TerraformStateBucket.Arn
+                  - !Sub "${TerraformStateBucket.Arn}/*"
+              - Sid: TerraformStateLock
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                Resource: !GetAtt TerraformLockTable.Arn
+              - Sid: TerraformDistribution
+                Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub "${TerraformDistributionBucket.Arn}/config/terraform-build.json"
+                  - !Sub "${TerraformDistributionBucket.Arn}/terraform/*"
+              - Sid: TerraformManagedResources
+                Effect: Allow
+                Action:
+                  - ec2:*
+                  - elasticloadbalancing:*
+                  - route53:*
+                  - logs:*
+                Resource: "*"
+
+# ---------------------------------------------------------------
+# IAM: shared CodePipeline role
+# ---------------------------------------------------------------
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: dev-terraform-common-codepipeline-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: terraform-common-codepipeline-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ArtifactStore
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketVersioning
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                Resource:
+                  - !GetAtt ArtifactBucket.Arn
+                  - !Sub "${ArtifactBucket.Arn}/*"
+              - Sid: CodeCommitSource
+                Effect: Allow
+                Action:
+                  - codecommit:GetBranch
+                  - codecommit:GetCommit
+                  - codecommit:GetRepository
+                  - codecommit:GetCommitHistory
+                  - codecommit:CancelUploadArchive
+                  - codecommit:GetUploadArchiveStatus
+                  - codecommit:UploadArchive
+                Resource: !Sub "arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:infra"
+              - Sid: RunCodeBuild
+                Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/dev--*--*--plan--cb"
+                  - !Sub "arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/dev--*--*--apply--cb"
+              - Sid: PassCodeBuildRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource:
+                  - !GetAtt CodeBuildIamRole.Arn
+                  - !GetAtt CodeBuildNetworkRole.Arn
+
+Outputs:
+# ---------------------------------------------------------------
+# Cross-stack exports
+# ---------------------------------------------------------------
+  ArtifactBucketName:
+    Value: !Ref ArtifactBucket
+    Export:
+      Name: dev-terraform-common-artifact-bucket-name
+  ArtifactBucketArn:
+    Value: !GetAtt ArtifactBucket.Arn
+    Export:
+      Name: dev-terraform-common-artifact-bucket-arn
+  TerraformDistributionBucketName:
+    Value: !Ref TerraformDistributionBucket
+    Export:
+      Name: dev-terraform-common-distribution-bucket-name
+  TerraformStateBucketName:
+    Value: !Ref TerraformStateBucket
+    Export:
+      Name: dev-terraform-common-state-bucket-name
+  TerraformLockTableName:
+    Value: !Ref TerraformLockTable
+    Export:
+      Name: dev-terraform-common-lock-table-name
+  CodeBuildIamRoleArn:
+    Value: !GetAtt CodeBuildIamRole.Arn
+    Export:
+      Name: dev-terraform-iam-codebuild-role-arn
+  CodeBuildNetworkRoleArn:
+    Value: !GetAtt CodeBuildNetworkRole.Arn
+    Export:
+      Name: dev-terraform-network-codebuild-role-arn
+  CodePipelineRoleArn:
+    Value: !GetAtt CodePipelineRole.Arn
+    Export:
+      Name: dev-terraform-common-codepipeline-role-arn

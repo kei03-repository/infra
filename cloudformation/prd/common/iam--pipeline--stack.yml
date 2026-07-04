@@ -1,0 +1,184 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  [prd] IAM機能 Terraformデプロイ用 CodePipeline。
+  Source(CodeCommit) -> Plan(選択ターゲットの差分チェック) -> Approve(手動承認・変更内容確認) -> Apply(差分のあるターゲットのみデプロイ)。
+  Apply失敗時は直前の成功リビジョンを自動再適用してロールバック(CodePipeline V2 / OnFailure: ROLLBACK)。
+
+Resources:
+# ---------------------------------------------------------------
+# Terraform Plan ビルドプロジェクト
+# ---------------------------------------------------------------
+  TerraformPlanBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: prd--common--iam--plan--cb
+      Description: prd IAM機能 Terraform Plan
+      ServiceRole: !ImportValue prd-terraform-iam-codebuild-role-arn
+      TimeoutInMinutes: 60
+      Artifacts:
+        Type: CODEPIPELINE
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: infra/buildspecs/terraform-plan.yml
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux-x86_64-standard:5.0
+        ImagePullCredentialsType: CODEBUILD
+        EnvironmentVariables:
+          - Name: TF_FUNCTION_PATH
+            Value: infra/common/environments/prd/iam
+          - Name: TF_CONFIG_S3_URI
+            Value: !Sub
+              - "s3://${ConfigBucket}/config/terraform-build.json"
+              - ConfigBucket: !ImportValue prd-terraform-common-distribution-bucket-name
+      Tags:
+        - Key: Environment
+          Value: prd
+        - Key: ProductName
+          Value: common
+# ---------------------------------------------------------------
+# Terraform Apply ビルドプロジェクト
+# ---------------------------------------------------------------
+  TerraformApplyBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: prd--common--iam--apply--cb
+      Description: prd IAM機能 Terraform Apply
+      ServiceRole: !ImportValue prd-terraform-iam-codebuild-role-arn
+      TimeoutInMinutes: 60
+      Artifacts:
+        Type: CODEPIPELINE
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: infra/buildspecs/terraform-apply.yml
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux-x86_64-standard:5.0
+        ImagePullCredentialsType: CODEBUILD
+        EnvironmentVariables:
+          - Name: TF_FUNCTION_PATH
+            Value: infra/common/environments/prd/iam
+          - Name: TF_CONFIG_S3_URI
+            Value: !Sub
+              - "s3://${ConfigBucket}/config/terraform-build.json"
+              - ConfigBucket: !ImportValue prd-terraform-common-distribution-bucket-name
+      Tags:
+        - Key: Environment
+          Value: prd
+        - Key: ProductName
+          Value: common
+
+# ---------------------------------------------------------------
+# パイプライン本体 (V2: パイプライン変数・ステージロールバック対応)
+# ---------------------------------------------------------------
+  IamTerraformPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    DependsOn:
+      - TerraformPlanBuildProject
+      - TerraformApplyBuildProject
+    Properties:
+      Name: prd-terraform-iam-pipeline
+      PipelineType: V2
+      # 同時実行をキューイングし、tfstate への同時書き込みを防止
+      ExecutionMode: QUEUED
+      RoleArn: !ImportValue prd-terraform-common-codepipeline-role-arn
+      ArtifactStore:
+        Type: S3
+        Location: !ImportValue prd-terraform-common-artifact-bucket-name
+      Variables:
+        - Name: TARGETS
+          DefaultValue: all
+          Description: >-
+            デプロイ対象ターゲット(Terraformルートのサブディレクトリ名)。
+            all=機能配下の全ターゲット。複数指定は@区切り(例: manager-role@other-role)。
+            ※パイプライン変数の値は [A-Za-z0-9@-_] のみ使用可能なためカンマではなく@区切り。
+      Stages:
+        # -------- Source --------
+        - Name: Source
+          Actions:
+            - Name: CodeCommitSource
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeCommit
+                Version: "1"
+              OutputArtifacts:
+                - Name: SourceOutput
+              Configuration:
+                RepositoryName: infra
+                BranchName: main
+                PollForSourceChanges: "false"
+              RunOrder: 1
+
+        # -------- Plan (選択ターゲットの差分チェック) --------
+        - Name: Plan
+          Actions:
+            - Name: TerraformPlan
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: "1"
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: PlanOutput
+              Namespace: PlanVars
+              Configuration:
+                ProjectName: !Ref TerraformPlanBuildProject
+                EnvironmentVariables: |
+                  [
+                    {"name": "TARGETS", "value": "#{variables.TARGETS}", "type": "PLAINTEXT"}
+                  ]
+              RunOrder: 1
+
+        # -------- Approve (plan結果・コード差分の確認と承認) --------
+        - Name: Approve
+          Actions:
+            - Name: ManualApproval
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Provider: Manual
+                Version: "1"
+              Configuration:
+                CustomData: >-
+                  対象コミット #{codepipeline.CommitId} の変更内容を確認してください。
+                  差分は Plan ステージのビルドログおよび出力アーティファクト(plans/*.txt, diff-summary.txt)、
+                  コード差分は CodeCommit コンソールのコミット差分で確認できます。
+                  承認すると差分のあるターゲットのみデプロイされます。
+                  Apply失敗時は直前の成功リビジョンで自動ロールバックされます。
+                ExternalEntityLink: !Sub "https://${AWS::Region}.console.aws.amazon.com/codesuite/codecommit/repositories/infra/browse"
+              RunOrder: 1
+
+        # -------- Apply (差分のあるターゲットのみデプロイ / 失敗時自動ロールバック) --------
+        - Name: Apply
+          Actions:
+            - Name: TerraformApply
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: "1"
+              InputArtifacts:
+                - Name: SourceOutput
+              Configuration:
+                ProjectName: !Ref TerraformApplyBuildProject
+                EnvironmentVariables: |
+                  [
+                    {"name": "TARGETS", "value": "#{variables.TARGETS}", "type": "PLAINTEXT"}
+                  ]
+              RunOrder: 1
+          # 失敗時: 直前に成功した実行のソースリビジョンで Apply を自動再実行(ロールバック)
+          OnFailure:
+            Result: ROLLBACK
+      Tags:
+        - Key: Environment
+          Value: prd
+        - Key: ProductName
+          Value: common
+        - Key: ManagedBy
+          Value: CloudFormation
+

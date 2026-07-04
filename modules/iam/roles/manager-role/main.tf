@@ -1,3 +1,13 @@
+terraform {
+  required_version = ">= 1.0"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
 # IAM ロール作成
 resource "aws_iam_role" "manager_role" {
   name               = local.role_name
@@ -15,7 +25,7 @@ resource "aws_iam_role" "manager_role" {
 data "aws_iam_policy_document" "assume_role_policy" {
   statement {
     effect = "Allow"
-    principals {
+    principals = {
       type        = "AWS"
       identifiers = ["arn:aws:iam::${var.assume_role_account_id}:root"]
     }
@@ -26,16 +36,26 @@ data "aws_iam_policy_document" "assume_role_policy" {
 # 許可ポリシー
 data "aws_iam_policy_document" "manager_policy" {
   statement {
-    sid       = "ManagerAllowedActions"
-    effect    = "Allow"
-    actions   = local.manager_allowed_actions
+    sid    = "TerraformAllowedActions"
+    effect = "Allow"
+    actions = concat(
+      local.terraform_allowed_actions,
+      [
+        # 追加の許可アクション
+        "resourcegroupstaggingapi:*",
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath",
+        "ssm:DescribeParameters",
+      ]
+    )
     resources = ["*"]
   }
 
   statement {
-    sid       = "DenyProhibitedActions"
-    effect    = "Deny"
-    actions   = local.denied_actions
+    sid    = "DenyProhibitedActions"
+    effect = "Deny"
+    actions = local.denied_actions
     resources = ["*"]
   }
 

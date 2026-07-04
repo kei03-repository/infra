@@ -1,0 +1,132 @@
+version: 0.2
+
+# =================================================================
+# Terraform Apply 用 buildspec (差分のあるターゲットのみデプロイ)
+#
+# 入力環境変数:
+#   TF_FUNCTION_PATH  : 機能のTerraformルート親パス
+#                       (例: infra/common/environments/dev/iam)
+#   TARGETS           : 対象ターゲット。all=全ターゲット。
+#                       複数指定は@区切り (例: manager-role@other-role)
+#   TF_CONFIG_S3_URI  : 共通Terraformビルド設定JSONのS3 URI
+#
+# 処理内容:
+#   選択ターゲットごとに terraform plan -detailed-exitcode を再実行し、
+#   差分があるターゲットのみ terraform apply を実行する。
+#   (Planステージの plan ファイルではなく、現在のソースと state から
+#    再plan することで、ロールバック実行時にも正しい復旧planが生成される)
+#
+# ロールバック:
+#   このステージが失敗すると CodePipeline が直前に成功した実行の
+#   ソースリビジョンで本ステージを自動再実行する(OnFailure: ROLLBACK)。
+#   古いソースで再plan -> apply されるため、直前の構成へ復旧する。
+# =================================================================
+
+phases:
+  install:
+    commands:
+      - |
+        set -eu
+        if [ -z "${TF_CONFIG_S3_URI:-}" ]; then
+          echo "ERROR: TF_CONFIG_S3_URI が必要です"
+          exit 1
+        fi
+        command -v jq >/dev/null || {
+          echo "ERROR: jq が CodeBuild イメージに必要です"
+          exit 1
+        }
+        aws s3 cp "${TF_CONFIG_S3_URI}" /tmp/terraform-build-config.json
+        TERRAFORM_VERSION=$(jq -er '.terraformVersion | strings | select(length > 0)' /tmp/terraform-build-config.json)
+        TF_DISTRIBUTION_KEY=$(jq -er '.terraformDistributionKey | strings | select(length > 0)' /tmp/terraform-build-config.json)
+        TF_DISTRIBUTION_BUCKET=${TF_CONFIG_S3_URI#s3://}
+        TF_DISTRIBUTION_BUCKET=${TF_DISTRIBUTION_BUCKET%%/*}
+        if [ -z "${TF_DISTRIBUTION_BUCKET}" ] || [ "${TF_DISTRIBUTION_BUCKET}" = "${TF_CONFIG_S3_URI}" ]; then
+          echo "ERROR: TF_CONFIG_S3_URI は s3://bucket/key 形式で指定してください"
+          exit 1
+        fi
+        echo "Downloading Terraform ${TERRAFORM_VERSION} from S3"
+        aws s3 cp "s3://${TF_DISTRIBUTION_BUCKET}/${TF_DISTRIBUTION_KEY}" /tmp/terraform.zip
+        unzip -o /tmp/terraform.zip -d /usr/local/bin
+        terraform version
+
+  pre_build:
+    commands:
+      - export TF_INPUT=0
+      - |
+        if [ -z "${TF_FUNCTION_PATH}" ] || [ ! -d "${CODEBUILD_SRC_DIR}/${TF_FUNCTION_PATH}" ]; then
+          echo "ERROR: TF_FUNCTION_PATH=${TF_FUNCTION_PATH} が存在しません"
+          exit 1
+        fi
+      - |
+        # ターゲット検出: 機能ディレクトリ直下で *.tf を持つサブディレクトリ
+        cd "${CODEBUILD_SRC_DIR}/${TF_FUNCTION_PATH}"
+        ALL_TARGETS=""
+        for d in */ ; do
+          d="${d%/}"
+          if compgen -G "${d}/*.tf" > /dev/null; then
+            ALL_TARGETS="${ALL_TARGETS} ${d}"
+          fi
+        done
+        ALL_TARGETS=$(echo "${ALL_TARGETS}" | xargs -n1 | sort | xargs || true)
+        echo "検出ターゲット: ${ALL_TARGETS:-なし}"
+        if [ -z "${ALL_TARGETS}" ]; then
+          echo "ERROR: 対象ターゲットが1件も見つかりません"
+          exit 1
+        fi
+        # ターゲット選択 (all または @区切り)
+        if [ -z "${TARGETS}" ] || [ "${TARGETS}" = "all" ]; then
+          SELECTED="${ALL_TARGETS}"
+        else
+          SELECTED=$(echo "${TARGETS}" | tr '@' ' ')
+          for t in ${SELECTED}; do
+            if ! echo "${ALL_TARGETS}" | tr ' ' '\n' | grep -qx "${t}"; then
+              echo "ERROR: 不明なターゲットです: ${t} (検出ターゲット: ${ALL_TARGETS})"
+              exit 1
+            fi
+          done
+        fi
+        echo "選択ターゲット: ${SELECTED}"
+        echo "${SELECTED}" > /tmp/selected_targets.txt
+
+  build:
+    commands:
+      - |
+        set -e
+        TF_STATE_BUCKET_NAME=$(jq -er '.terraformStateBucketName | strings | select(length > 0)' /tmp/terraform-build-config.json)
+        TF_LOCK_TABLE_NAME=$(jq -er '.terraformLockTableName | strings | select(length > 0)' /tmp/terraform-build-config.json)
+        TF_IN_AUTOMATION=$(jq -er '.tfInAutomation // "1"' /tmp/terraform-build-config.json)
+        export TF_STATE_BUCKET_NAME TF_LOCK_TABLE_NAME TF_IN_AUTOMATION
+        for t in $(cat /tmp/selected_targets.txt); do
+          echo "=================================================="
+          echo "Apply: ${t}"
+          echo "=================================================="
+          cd "${CODEBUILD_SRC_DIR}/${TF_FUNCTION_PATH}/${t}"
+          # S3バックエンド未有効化のまま実行すると state が永続化されず危険なためガード
+          if ! grep -Eq '^[[:space:]]*backend[[:space:]]+"s3"' ./*.tf; then
+            echo "ERROR: [${t}] S3バックエンドが有効化されていません。"
+            echo "       backend.tf の terraform { backend \"s3\" { ... } } を有効化してください。"
+            exit 1
+          fi
+          terraform init -input=false -no-color \
+            -backend-config="bucket=${TF_STATE_BUCKET_NAME}" \
+            -backend-config="dynamodb_table=${TF_LOCK_TABLE_NAME}"
+          set +e
+          terraform plan -input=false -no-color -detailed-exitcode -out="/tmp/${t}.tfplan"
+          PLAN_EXIT=$?
+          set -e
+          if [ ${PLAN_EXIT} -eq 1 ]; then
+            echo "ERROR: [${t}] terraform plan が失敗しました"
+            exit 1
+          fi
+          if [ ${PLAN_EXIT} -eq 0 ]; then
+            echo "[${t}] 差分なしのためスキップ"
+            continue
+          fi
+          echo "[${t}] 差分ありのため apply を実行"
+          terraform apply -input=false -no-color "/tmp/${t}.tfplan"
+          echo "[${t}] apply 完了"
+        done
+
+  post_build:
+    commands:
+      - echo "Apply ステージ完了"
