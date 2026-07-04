@@ -22,7 +22,7 @@ concurrency:
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
 
-# 2つのリポジトリへ同期される構成:
+# 2つのリポジトリへ同期される構成（プロダクトが増えた場合は、matrixに追加することで対応可能）:
 # - common → CodeCommit: common
 # - products/kintai → CodeCommit: kintai
 
