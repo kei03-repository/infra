@@ -23,7 +23,7 @@ env:
   AWS_REGION: ${{ vars.AWS_REGION }}
 
 # 2つのリポジトリへ同期される構成:
-# - common → CodeCommit: infra-common
+# - common → CodeCommit: common
 # - products/kintai → CodeCommit: kintai
 
 jobs:
@@ -34,7 +34,7 @@ jobs:
       matrix:
         include:
           - path: common
-            repository: infra-common
+            repository: common
           - path: products/kintai
             repository: kintai
       fail-fast: false
