@@ -1,0 +1,78 @@
+name: Sync CodeCommit Mirror
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '*'
+    paths:
+      - 'common/**'
+      - 'products/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: codecommit-mirror-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+
+# 2つのリポジトリへ同期される構成:
+# - common → CodeCommit: infra-common
+# - products/kintai → CodeCommit: kintai
+
+jobs:
+  mirror:
+    if: github.repository_owner != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - path: common
+            repository: infra-common
+          - path: products/kintai
+            repository: kintai
+      fail-fast: false
+    steps:
+      - name: Validate required configuration
+        run: |
+          test -n "${AWS_REGION}"
+          test -n "${{ matrix.path }}"
+          test -n "${{ matrix.repository }}"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          role-session-name: github-codecommit-sync
+
+      - name: Clone GitHub repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" repo
+
+      - name: Verify target path exists
+        run: |
+          test -d "repo/${{ matrix.path }}"
+
+      - name: Filter to subdirectory
+        working-directory: repo
+        run: |
+          pip install git-filter-repo --quiet
+          git filter-repo --subdirectory-filter "${{ matrix.path }}"
+
+      - name: Push to CodeCommit
+        working-directory: repo
+        run: |
+          git config credential.helper '!aws codecommit credential-helper $@'
+          git config credential.UseHttpPath true
+          git remote add codecommit "https://git-codecommit.${AWS_REGION}.amazonaws.com/v1/repos/${{ matrix.repository }}"
+          git push codecommit --all --force
+          git push codecommit --tags --force
