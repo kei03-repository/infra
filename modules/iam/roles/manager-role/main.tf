@@ -25,7 +25,7 @@ resource "aws_iam_role" "manager_role" {
 data "aws_iam_policy_document" "assume_role_policy" {
   statement {
     effect = "Allow"
-    principals = {
+    principals {
       type        = "AWS"
       identifiers = ["arn:aws:iam::${var.assume_role_account_id}:root"]
     }
@@ -36,19 +36,9 @@ data "aws_iam_policy_document" "assume_role_policy" {
 # 許可ポリシー
 data "aws_iam_policy_document" "manager_policy" {
   statement {
-    sid    = "TerraformAllowedActions"
+    sid    = "ManagerAllowedActions"
     effect = "Allow"
-    actions = concat(
-      local.terraform_allowed_actions,
-      [
-        # 追加の許可アクション
-        "resourcegroupstaggingapi:*",
-        "ssm:GetParameter",
-        "ssm:GetParameters",
-        "ssm:GetParametersByPath",
-        "ssm:DescribeParameters",
-      ]
-    )
+    actions = local.manager_allowed_actions
     resources = ["*"]
   }
 
