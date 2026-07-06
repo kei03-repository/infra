@@ -5,6 +5,6 @@ resource "aws_iam_policy" "this" {
   policy      = var.policy_json
 
   tags = {
-    Name      = var.policy_name
+    Name = var.policy_name
   }
 }

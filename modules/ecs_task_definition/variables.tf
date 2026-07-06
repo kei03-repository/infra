@@ -1,43 +1,53 @@
 variable "product_name" {
-  type = string
+  description = "Input variable: product_name."
+  type        = string
 }
 
 variable "environment" {
-  type = string
+  description = "Input variable: environment."
+  type        = string
 }
 
 variable "task_definition_name" {
-  type = string
+  description = "Input variable: task_definition_name."
+  type        = string
 }
 
 variable "execution_role_arn" {
-  type = string
+  description = "Input variable: execution_role_arn."
+  type        = string
 }
 
 variable "task_role_arn" {
-  type = string
+  description = "Input variable: task_role_arn."
+  type        = string
 }
 
 variable "container_definitions" {
-  type = string
+  description = "Input variable: container_definitions."
+  type        = string
 }
 
 variable "cpu" {
-  type    = number
-  default = 256
+  description = "Input variable: cpu."
+  type        = number
+  default     = 256
 }
 
 variable "memory" {
-  type    = number
-  default = 512
+  description = "Input variable: memory."
+  type        = number
+  default     = 512
 }
 
 variable "network_mode" {
-  type    = string
-  default = "awsvpc"
+  description = "Input variable: network_mode."
+  type        = string
+  default     = "awsvpc"
 }
 
 variable "requires_compatibilities" {
-  type    = list(string)
-  default = ["FARGATE"]
+  description = "Input variable: requires_compatibilities."
+  type        = list(string)
+  default     = ["FARGATE"]
 }

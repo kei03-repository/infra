@@ -1,26 +1,32 @@
 variable "product_name" {
-  type = string
+  description = "Input variable: product_name."
+  type        = string
 }
 
 variable "environment" {
-  type = string
+  description = "Input variable: environment."
+  type        = string
 }
 
 variable "policy_name" {
-  type    = string
-  default = null
+  description = "Input variable: policy_name."
+  type        = string
+  default     = null
 }
 
 variable "description" {
-  type    = string
-  default = null
+  description = "Input variable: description."
+  type        = string
+  default     = null
 }
 
 variable "path" {
-  type    = string
-  default = "/"
+  description = "Input variable: path."
+  type        = string
+  default     = "/"
 }
 
 variable "policy_json" {
-  type = string
+  description = "Input variable: policy_json."
+  type        = string
 }

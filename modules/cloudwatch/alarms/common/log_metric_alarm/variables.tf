@@ -1,99 +1,121 @@
 variable "alarm_name" {
-  type = string
+  description = "Input variable: alarm_name."
+  type        = string
 }
 
 variable "alarm_description" {
-  type    = string
-  default = null
+  description = "Input variable: alarm_description."
+  type        = string
+  default     = null
 }
 
 variable "comparison_operator" {
-  type    = string
-  default = "GreaterThanOrEqualToThreshold"
+  description = "Input variable: comparison_operator."
+  type        = string
+  default     = "GreaterThanOrEqualToThreshold"
 }
 
 variable "evaluation_periods" {
-  type = number
+  description = "Input variable: evaluation_periods."
+  type        = number
 }
 
 variable "datapoints_to_alarm" {
-  type    = number
-  default = null
+  description = "Input variable: datapoints_to_alarm."
+  type        = number
+  default     = null
 }
 
 variable "threshold" {
-  type = number
+  description = "Input variable: threshold."
+  type        = number
 }
 
 variable "period" {
-  type = number
+  description = "Input variable: period."
+  type        = number
 }
 
 variable "statistic" {
-  type    = string
-  default = "Sum"
+  description = "Input variable: statistic."
+  type        = string
+  default     = "Sum"
 }
 
 variable "treat_missing_data" {
-  type    = string
-  default = "notBreaching"
+  description = "Input variable: treat_missing_data."
+  type        = string
+  default     = "notBreaching"
 }
 
 variable "actions_enabled" {
-  type    = bool
-  default = true
+  description = "Input variable: actions_enabled."
+  type        = bool
+  default     = true
 }
 
 variable "alarm_actions" {
-  type    = list(string)
-  default = []
+  description = "Input variable: alarm_actions."
+  type        = list(string)
+  default     = []
 }
 
 variable "ok_actions" {
-  type    = list(string)
-  default = []
+  description = "Input variable: ok_actions."
+  type        = list(string)
+  default     = []
 }
 
 variable "insufficient_data_actions" {
-  type    = list(string)
-  default = []
+  description = "Input variable: insufficient_data_actions."
+  type        = list(string)
+  default     = []
 }
 
 variable "log_group_name" {
-  type = string
+  description = "Input variable: log_group_name."
+  type        = string
 }
 
 variable "filter_name" {
-  type = string
+  description = "Input variable: filter_name."
+  type        = string
 }
 
 variable "filter_pattern" {
-  type = string
+  description = "Input variable: filter_pattern."
+  type        = string
 }
 
 variable "metric_namespace" {
-  type = string
+  description = "Input variable: metric_namespace."
+  type        = string
 }
 
 variable "metric_name" {
-  type = string
+  description = "Input variable: metric_name."
+  type        = string
 }
 
 variable "metric_value" {
-  type = string
+  description = "Input variable: metric_value."
+  type        = string
 }
 
 variable "metric_default_value" {
-  type    = number
-  default = null
+  description = "Input variable: metric_default_value."
+  type        = number
+  default     = null
 }
 
 variable "dimensions" {
-  type    = map(string)
-  default = {}
+  description = "Input variable: dimensions."
+  type        = map(string)
+  default     = {}
 }
 
 variable "tags" {
-  type    = map(string)
-  default = {}
+  description = "Input variable: tags."
+  type        = map(string)
+  default     = {}
 }

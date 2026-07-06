@@ -1,16 +1,16 @@
 variable "role_name" {
-  description = "IAM ロール名"
+  description = "Name of the IAM role."
   type        = string
   default     = "manager-role"
 }
 
 variable "assume_role_account_id" {
-  description = "スイッチロール元のアカウント ID"
+  description = "AWS account ID allowed to assume this role."
   type        = string
 }
 
 variable "tags" {
-  description = "リソースに付与するタグ"
+  description = "Tags applied to created resources."
   type        = map(string)
   default     = {}
 }

@@ -1,21 +1,26 @@
 variable "product_name" {
-  type = string
+  description = "Input variable: product_name."
+  type        = string
 }
 
 variable "environment" {
-  type = string
+  description = "Input variable: environment."
+  type        = string
 }
 
 variable "repository_name" {
-  type = string
+  description = "Input variable: repository_name."
+  type        = string
 }
 
 variable "force_delete" {
-  type    = bool
-  default = false
+  description = "Input variable: force_delete."
+  type        = bool
+  default     = false
 }
 
 variable "scan_on_push" {
-  type    = bool
-  default = true
+  description = "Input variable: scan_on_push."
+  type        = bool
+  default     = true
 }
