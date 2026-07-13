@@ -1,15 +1,15 @@
 variable "role_name" {
-  description = "GitHub Actions 用 IAM ロール名"
+  description = "IAM role name for GitHub Actions."
   type        = string
 }
 
 variable "github_organization" {
-  description = "GitHub Organization または User 名"
+  description = "GitHub organization name."
   type        = string
 }
 
 variable "github_repositories" {
-  description = "許可する GitHub リポジトリ名一覧（owner なし）"
+  description = "List of allowed GitHub repositories under the organization."
   type        = list(string)
 }
 
@@ -19,7 +19,7 @@ variable "oidc_provider_arn" {
 }
 
 variable "tags" {
-  description = "リソースに付与するタグ"
+  description = "Tags applied to created resources."
   type        = map(string)
   default     = {}
 }

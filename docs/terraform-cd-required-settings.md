@@ -21,7 +21,7 @@ Required repository variables:
 - `TFSTATE_DYNAMODB_TABLE_DEV`
 - `TFSTATE_BUCKET_PRD`
 - `TFSTATE_DYNAMODB_TABLE_PRD`
-- `APP_REPOSITORY` (example: `your-org/kintai`)
+- `APP_REPOSITORY` (example: `kei03-repository/kintai`)
 - `SONAR_PROJECT_KEY`
 - `SONAR_PROJECT_NAME`
 - `SONAR_HOST_URL_ECS` (example: `http://sonarqube.internal.example.com`)

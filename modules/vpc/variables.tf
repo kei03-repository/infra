@@ -1,21 +1,26 @@
 variable "product_name" {
-  type = string
+  description = "Input variable: product_name."
+  type        = string
 }
 
 variable "environment" {
-  type = string
+  description = "Input variable: environment."
+  type        = string
 }
 
 variable "cidr_block" {
-  type = string
+  description = "Input variable: cidr_block."
+  type        = string
 }
 
 variable "enable_dns_support" {
-  type    = bool
-  default = true
+  description = "Input variable: enable_dns_support."
+  type        = bool
+  default     = true
 }
 
 variable "enable_dns_hostnames" {
-  type    = bool
-  default = true
+  description = "Input variable: enable_dns_hostnames."
+  type        = bool
+  default     = true
 }

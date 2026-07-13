@@ -2,7 +2,7 @@ locals {
   alarm_name = coalesce(var.alarm_name, "${var.environment}--${var.product_name}--ecs--task-count")
   base_dimensions = var.service_name == null ? {
     ClusterName = var.cluster_name
-  } : {
+    } : {
     ClusterName = var.cluster_name
     ServiceName = var.service_name
   }

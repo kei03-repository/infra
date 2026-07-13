@@ -1,23 +1,29 @@
 output "bucket_id" {
-	value = aws_s3_bucket.this.id
+  description = "Output value: bucket_id."
+  value       = aws_s3_bucket.this.id
 }
 
 output "bucket_arn" {
-	value = aws_s3_bucket.this.arn
+  description = "Output value: bucket_arn."
+  value       = aws_s3_bucket.this.arn
 }
 
 output "bucket_name" {
-	value = aws_s3_bucket.this.bucket
+  description = "Output value: bucket_name."
+  value       = aws_s3_bucket.this.bucket
 }
 
 output "s3_bucket_id" {
-	value = aws_s3_bucket.this.id
+  description = "Output value: s3_bucket_id."
+  value       = aws_s3_bucket.this.id
 }
 
 output "s3_bucket_arn" {
-	value = aws_s3_bucket.this.arn
+  description = "Output value: s3_bucket_arn."
+  value       = aws_s3_bucket.this.arn
 }
 
 output "s3_bucket_name" {
-	value = aws_s3_bucket.this.bucket
+  description = "Output value: s3_bucket_name."
+  value       = aws_s3_bucket.this.bucket
 }

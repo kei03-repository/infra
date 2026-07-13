@@ -1,12 +1,12 @@
 locals {
   rule_name = coalesce(var.rule_name, "${var.environment}--${var.product_name}--ecs--stopped-event")
-  detail    = merge({
+  detail = merge({
     lastStatus = ["STOPPED"]
   }, var.cluster_arn != null ? { clusterArn = [var.cluster_arn] } : {}, var.service_arn != null ? { serviceArn = [var.service_arn] } : {})
   event_pattern = coalesce(var.event_pattern, jsonencode({
-    source      = ["aws.ecs"]
+    source        = ["aws.ecs"]
     "detail-type" = ["ECS Task State Change"]
-    detail      = local.detail
+    detail        = local.detail
   }))
 }
 

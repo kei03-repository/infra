@@ -1,13 +1,3 @@
-terraform {
-  required_version = ">= 1.0"
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
-
 # IAM ロール作成
 resource "aws_iam_role" "manager_role" {
   name               = local.role_name
@@ -36,16 +26,16 @@ data "aws_iam_policy_document" "assume_role_policy" {
 # 許可ポリシー
 data "aws_iam_policy_document" "manager_policy" {
   statement {
-    sid    = "ManagerAllowedActions"
-    effect = "Allow"
-    actions = local.manager_allowed_actions
+    sid       = "ManagerAllowedActions"
+    effect    = "Allow"
+    actions   = local.manager_allowed_actions
     resources = ["*"]
   }
 
   statement {
-    sid    = "DenyProhibitedActions"
-    effect = "Deny"
-    actions = local.denied_actions
+    sid       = "DenyProhibitedActions"
+    effect    = "Deny"
+    actions   = local.denied_actions
     resources = ["*"]
   }
 
