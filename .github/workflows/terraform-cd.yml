@@ -1,0 +1,474 @@
+name: Terraform CD
+
+"on":
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - closed
+    branches:
+      - develop
+      - main
+    paths:
+      - 'common/**'
+      - 'modules/**'
+      - 'products/kintai/**'
+      - '.github/workflows/terraform-cd.yml'
+      - '.github/scripts/**'
+      - '.github/policy/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - prd
+        default: prd
+      target_paths:
+        description: 'Comma-separated Terraform target directories (manual mode). Example: products/kintai/modules/backend,products/kintai/modules/frontend'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+
+jobs:
+  detect:
+    name: Detect Terraform Targets
+    runs-on: ubuntu-latest
+    outputs:
+      env_name: ${{ steps.env.outputs.env_name }}
+      matrix: ${{ steps.targets.outputs.matrix }}
+      has_targets: ${{ steps.targets.outputs.has_targets }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve environment
+        id: env
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "env_name=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.base_ref }}" == "main" ]]; then
+            echo "env_name=prd" >> "$GITHUB_OUTPUT"
+          else
+            echo "env_name=dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Detect changed/manual targets
+        id: targets
+        shell: bash
+        run: |
+          chmod +x .github/scripts/detect_targets.sh
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            MATRIX_JSON=$(BASE_REF="" HEAD_REF="" .github/scripts/detect_targets.sh manual "${{ steps.env.outputs.env_name }}" "${{ inputs.target_paths }}")
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            MATRIX_JSON=$(BASE_REF="${{ github.event.pull_request.base.sha }}" HEAD_REF="${{ github.event.pull_request.head.sha }}" .github/scripts/detect_targets.sh auto "${{ steps.env.outputs.env_name }}")
+          else
+            MATRIX_JSON=$(BASE_REF="${{ github.event.before }}" HEAD_REF="${{ github.sha }}" .github/scripts/detect_targets.sh auto "${{ steps.env.outputs.env_name }}")
+          fi
+
+          echo "matrix=$MATRIX_JSON" >> "$GITHUB_OUTPUT"
+          if [[ "$MATRIX_JSON" == '{"include":[]}' ]]; then
+            echo "has_targets=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_targets=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  quality_gate_dev:
+    name: Dev Quality Gate (Trivy + SonarQube)
+    runs-on: ubuntu-latest
+    needs: detect
+    if: needs.detect.outputs.env_name == 'dev' && needs.detect.outputs.has_targets == 'true' && github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && github.base_ref == 'develop'
+    steps:
+      - name: Checkout infra
+        uses: actions/checkout@v4
+
+      - name: Checkout app repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.APP_REPOSITORY }}
+          ref: develop
+          path: app-kintai
+          token: ${{ secrets.APP_REPO_READ_TOKEN }}
+
+      - name: Trivy scan (infra IaC)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: config,secret
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+
+      - name: Trivy scan (app source)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: app-kintai
+          scanners: vuln,secret,config
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+
+      # TODO: Enable after SonarQube on ECS is available.
+      # Example configuration (commented out intentionally):
+      # - name: SonarQube Scan (app)
+      #   uses: SonarSource/sonarqube-scan-action@v5.1.0
+      #   env:
+      #     SONAR_TOKEN: <GitHub Secret SONAR_TOKEN>
+      #     SONAR_HOST_URL: <GitHub Variable SONAR_HOST_URL_ECS>
+      #   with:
+      #     projectBaseDir: app-kintai
+      #     args: >-
+      #       -Dsonar.projectKey=<GitHub Variable SONAR_PROJECT_KEY>
+      #       -Dsonar.projectName=<GitHub Variable SONAR_PROJECT_NAME>
+      #       -Dsonar.sources=backend,frontend
+
+  plan:
+    name: Plan (${{ matrix.path }})
+    runs-on: ubuntu-latest
+    needs:
+      - detect
+    if: needs.detect.outputs.has_targets == 'true' && (github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.detect.outputs.matrix) }}
+    concurrency:
+      group: terraform-${{ needs.detect.outputs.env_name }}
+      cancel-in-progress: false
+    env:
+      ENV_NAME: ${{ needs.detect.outputs.env_name }}
+      TARGET_PATH: ${{ matrix.path }}
+      AWS_ROLE_ARN: ${{ needs.detect.outputs.env_name == 'dev' && secrets.AWS_ROLE_ARN_DEV || secrets.AWS_ROLE_ARN_PRD }}
+      TFSTATE_BUCKET: ${{ needs.detect.outputs.env_name == 'dev' && vars.TFSTATE_BUCKET_DEV || vars.TFSTATE_BUCKET_PRD }}
+      TFSTATE_DYNAMODB_TABLE: ${{ needs.detect.outputs.env_name == 'dev' && vars.TFSTATE_DYNAMODB_TABLE_DEV || vars.TFSTATE_DYNAMODB_TABLE_PRD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+
+      - name: Setup Conftest
+        shell: bash
+        run: |
+          curl -sSL -o /tmp/conftest.tar.gz https://github.com/open-policy-agent/conftest/releases/download/v0.57.0/conftest_0.57.0_Linux_x86_64.tar.gz
+          tar -xzf /tmp/conftest.tar.gz -C /tmp
+          sudo mv /tmp/conftest /usr/local/bin/conftest
+          conftest --version
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: tf-plan-${{ env.ENV_NAME }}
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive
+
+      - name: Create backend override
+        shell: bash
+        run: |
+          cat > "${TARGET_PATH}/backend_override.auto.tf" <<'EOF'
+          terraform {
+            backend "s3" {}
+          }
+          EOF
+
+      - name: Terraform init
+        run: |
+          terraform -chdir=${TARGET_PATH} init -reconfigure \
+            -backend-config="bucket=${TFSTATE_BUCKET}" \
+            -backend-config="key=${ENV_NAME}/${TARGET_PATH//\//-}.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="dynamodb_table=${TFSTATE_DYNAMODB_TABLE}" \
+            -backend-config="encrypt=true"
+
+      - name: Terraform validate
+        run: terraform -chdir=${TARGET_PATH} validate
+
+      - name: TFLint
+        run: |
+          tflint --init
+          tflint --chdir=${TARGET_PATH}
+
+      - name: TFsec
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: ${{ env.TARGET_PATH }}
+
+      - name: Conftest policy check
+        run: conftest test ${TARGET_PATH} --policy .github/policy
+
+      - name: Terraform plan
+        id: tfplan
+        shell: bash
+        run: |
+          set -o pipefail
+          terraform -chdir=${TARGET_PATH} plan -no-color -input=false -out=tfplan.binary | tee tfplan.txt
+
+      - name: Build plan summary
+        id: summary
+        shell: bash
+        run: |
+          {
+            echo "### Plan: ${TARGET_PATH}"
+            echo ""
+            echo "- Environment: ${ENV_NAME}"
+            echo "- Actor: ${{ github.actor }}"
+            echo "- SHA: ${{ github.sha }}"
+            echo ""
+            echo "\`\`\`text"
+            tail -n 120 tfplan.txt
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload plan artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ env.ENV_NAME }}-${{ matrix.path }}
+          path: |
+            tfplan.txt
+            ${{ matrix.path }}/tfplan.binary
+            ${{ matrix.path }}/backend_override.auto.tf
+
+      - name: Comment plan summary on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planText = fs.readFileSync('tfplan.txt', 'utf8');
+            const clipped = planText.split('\n').slice(-120).join('\n');
+            const body = [
+              `### Terraform Plan (${process.env.TARGET_PATH})`,
+              '',
+              `- Environment: ${process.env.ENV_NAME}`,
+              `- Actor: ${{ github.actor }}`,
+              `- SHA: ${{ github.sha }}`,
+              '',
+              '```text',
+              clipped,
+              '```'
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+      - name: Cleanup backend override
+        if: always()
+        run: rm -f "${TARGET_PATH}/backend_override.auto.tf"
+
+  apply_dev:
+    name: Apply Dev (${{ matrix.path }})
+    runs-on: ubuntu-latest
+    needs:
+      - detect
+      - plan
+      - quality_gate_dev
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && github.base_ref == 'develop' && needs.detect.outputs.env_name == 'dev' && needs.detect.outputs.has_targets == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.detect.outputs.matrix) }}
+    concurrency:
+      group: terraform-dev
+      cancel-in-progress: false
+    environment:
+      name: terraform-dev
+    env:
+      ENV_NAME: dev
+      TARGET_PATH: ${{ matrix.path }}
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN_DEV }}
+      TFSTATE_BUCKET: ${{ vars.TFSTATE_BUCKET_DEV }}
+      TFSTATE_DYNAMODB_TABLE: ${{ vars.TFSTATE_DYNAMODB_TABLE_DEV }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: tf-apply-dev
+
+      - name: Create backend override
+        shell: bash
+        run: |
+          cat > "${TARGET_PATH}/backend_override.auto.tf" <<'EOF'
+          terraform {
+            backend "s3" {}
+          }
+          EOF
+
+      - name: Terraform init
+        run: |
+          terraform -chdir=${TARGET_PATH} init -reconfigure \
+            -backend-config="bucket=${TFSTATE_BUCKET}" \
+            -backend-config="key=${ENV_NAME}/${TARGET_PATH//\//-}.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="dynamodb_table=${TFSTATE_DYNAMODB_TABLE}" \
+            -backend-config="encrypt=true"
+
+      - name: Terraform apply
+        shell: bash
+        run: |
+          set -o pipefail
+          terraform -chdir=${TARGET_PATH} apply -auto-approve -input=false -no-color | tee apply.txt
+
+      - name: Write audit summary
+        shell: bash
+        run: |
+          {
+            echo "### Apply (dev): ${TARGET_PATH}"
+            echo ""
+            echo "- Actor: ${{ github.actor }}"
+            echo "- SHA: ${{ github.sha }}"
+            echo "- Run ID: ${{ github.run_id }}"
+            echo "- Trigger: ${{ github.event_name }}"
+            echo ""
+            echo "\`\`\`text"
+            tail -n 120 apply.txt
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload apply artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-apply-dev-${{ matrix.path }}
+          path: apply.txt
+
+      - name: Cleanup backend override
+        if: always()
+        run: rm -f "${TARGET_PATH}/backend_override.auto.tf"
+
+  apply_prd:
+    name: Apply Prd (${{ matrix.path }})
+    runs-on: ubuntu-latest
+    needs:
+      - detect
+      - plan
+    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'main' && inputs.environment == 'prd' && needs.detect.outputs.has_targets == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.detect.outputs.matrix) }}
+    concurrency:
+      group: terraform-prd
+      cancel-in-progress: false
+    environment:
+      name: terraform-prd
+    env:
+      ENV_NAME: prd
+      TARGET_PATH: ${{ matrix.path }}
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN_PRD }}
+      TFSTATE_BUCKET: ${{ vars.TFSTATE_BUCKET_PRD }}
+      TFSTATE_DYNAMODB_TABLE: ${{ vars.TFSTATE_DYNAMODB_TABLE_PRD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: tf-apply-prd
+
+      - name: Create backend override
+        shell: bash
+        run: |
+          cat > "${TARGET_PATH}/backend_override.auto.tf" <<'EOF'
+          terraform {
+            backend "s3" {}
+          }
+          EOF
+
+      - name: Terraform init
+        run: |
+          terraform -chdir=${TARGET_PATH} init -reconfigure \
+            -backend-config="bucket=${TFSTATE_BUCKET}" \
+            -backend-config="key=${ENV_NAME}/${TARGET_PATH//\//-}.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="dynamodb_table=${TFSTATE_DYNAMODB_TABLE}" \
+            -backend-config="encrypt=true"
+
+      - name: Terraform apply
+        shell: bash
+        run: |
+          set -o pipefail
+          terraform -chdir=${TARGET_PATH} apply -auto-approve -input=false -no-color | tee apply.txt
+
+      - name: Write audit summary
+        shell: bash
+        run: |
+          {
+            echo "### Apply (prd): ${TARGET_PATH}"
+            echo ""
+            echo "- Actor: ${{ github.actor }}"
+            echo "- SHA: ${{ github.sha }}"
+            echo "- Run ID: ${{ github.run_id }}"
+            echo "- Trigger: ${{ github.event_name }}"
+            echo ""
+            echo "\`\`\`text"
+            tail -n 120 apply.txt
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload apply artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-apply-prd-${{ matrix.path }}
+          path: apply.txt
+
+      - name: Cleanup backend override
+        if: always()
+        run: rm -f "${TARGET_PATH}/backend_override.auto.tf"
+
+  notify_prd_failure_dummy:
+    name: Notify Prd Failure (Dummy)
+    runs-on: ubuntu-latest
+    needs:
+      - apply_prd
+    if: always() && needs.apply_prd.result == 'failure'
+    steps:
+      - name: Placeholder notification
+        run: |
+          echo "PRD apply failed. Notification integration is not configured yet." \
+            >> "$GITHUB_STEP_SUMMARY"

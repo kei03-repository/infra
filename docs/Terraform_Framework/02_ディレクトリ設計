@@ -1,0 +1,999 @@
+# 第2章 ディレクトリ設計
+
+## 2.1 本章の目的
+
+本章では、Terraform Framework Standard v1.0で採用するリポジトリおよびディレクトリ構成を定義する。
+
+ディレクトリ構成を標準化する目的は、以下のとおりである。
+
+* AWSリソース定義と利用側の責務を分離する
+* 共通機能とプロダクト固有リソースを分離する
+* dev環境とprd環境を明確に分離する
+* Terraform Stateの適用単位を明確にする
+* Moduleを複数プロダクトで再利用する
+* 新しいプロダクトを同じ構成で追加できるようにする
+* CI/CDやPythonによる自動生成を実装しやすくする
+* 開発者が増加した場合でも配置先を判断できるようにする
+
+本章で定義する構成は、今後作成するすべてのAWSプロダクトに適用する。
+
+---
+
+## 2.2 ディレクトリ設計の基本方針
+
+本標準では、Terraformコードを以下の3つの主要な層に分離する。
+
+| 層         | ディレクトリ      | 管理単位           | 主な役割             |
+| --------- | ----------- | -------------- | ---------------- |
+| Module層   | `modules/`  | AWSサービス・単一責務単位 | AWSリソースの再利用可能な定義 |
+| Common層   | `common/`   | 環境・共通機能単位      | 複数プロダクトで利用する共通機能 |
+| Products層 | `products/` | プロダクト・環境・責務単位  | プロダクト固有インフラの構成   |
+
+`common`および`products`は、Moduleを組み合わせて機能やプロダクトを構築する**オーケストレーション層**とする。
+
+AWSリソースの`resource`ブロックは、原則として`modules`配下にのみ記述する。
+
+---
+
+## 2.3 リポジトリ全体構成
+
+Terraformリポジトリは、以下のトップレベル構成を標準とする。
+
+```text
+infra/
+├── .github/
+├── common/
+├── docs/
+├── modules/
+├── products/
+├── scripts/
+└── templates/
+```
+
+各トップレベルディレクトリの役割は以下のとおりである。
+
+| ディレクトリ       | 役割                                |
+| ------------ | --------------------------------- |
+| `.github/`   | GitHub ActionsおよびPull Request関連設定 |
+| `common/`    | 環境ごとの共通機能                         |
+| `docs/`      | 標準書、設計書、ADR、運用手順                  |
+| `modules/`   | AWSサービス単位の共通Terraform Module      |
+| `products/`  | プロダクトごとのAWSリソース構成                 |
+| `scripts/`   | Terraform運用やファイル生成を補助するスクリプト      |
+| `templates/` | Pythonスクリプトなどが利用する生成用テンプレート       |
+
+`examples/`および`tests/`は、標準構成には含めない。
+
+必要性が明確になった場合は、将来のMinorまたはMajorバージョンで追加を検討する。
+
+---
+
+## 2.4 全体ディレクトリ構成
+
+```text
+infra/
+├── .github/
+│   ├── workflows/
+│   │   └── sync_codecommit.yml
+│   └── pull_request_template.md
+│
+├── common/
+│   ├── dev/
+│   │   ├── terraform.tfvars
+│   │   ├── batch_start_stop/
+│   │   ├── backup/
+│   │   ├── budget_alert/
+│   │   └── log_export/
+│   │
+│   └── prd/
+│       ├── terraform.tfvars
+│       ├── batch_start_stop/
+│       ├── backup/
+│       ├── budget_alert/
+│       └── log_export/
+│
+├── docs/
+│   ├── standard/
+│   ├── adr/
+│   ├── architecture/
+│   └── operation/
+│
+├── modules/
+│   ├── alb/
+│   │   ├── load_balancer/
+│   │   ├── listener/
+│   │   ├── listener_rule/
+│   │   └── target_group/
+│   │
+│   ├── cloudwatch/
+│   │   ├── alarm/
+│   │   └── log_group/
+│   │
+│   ├── ecs/
+│   │   ├── autoscaling/
+│   │   ├── capacity_provider/
+│   │   ├── cluster/
+│   │   ├── service/
+│   │   └── task_definition/
+│   │
+│   ├── iam/
+│   │   ├── policy/
+│   │   └── role/
+│   │
+│   ├── rds/
+│   │   ├── instance/
+│   │   ├── parameter_group/
+│   │   └── subnet_group/
+│   │
+│   ├── s3/
+│   │   └── bucket/
+│   │
+│   └── vpc/
+│       ├── internet_gateway/
+│       ├── nat_gateway/
+│       ├── route_table/
+│       ├── security_group/
+│       ├── subnet/
+│       ├── vpc/
+│       └── vpc_endpoint/
+│
+├── products/
+│   └── kintai/
+│       ├── dev/
+│       │   ├── terraform.tfvars
+│       │   ├── network/
+│       │   ├── security/
+│       │   ├── compute/
+│       │   ├── database/
+│       │   ├── monitoring/
+│       │   ├── notification/
+│       │   └── dns/
+│       │
+│       ├── prd/
+│       │   ├── terraform.tfvars
+│       │   ├── network/
+│       │   ├── security/
+│       │   ├── compute/
+│       │   ├── database/
+│       │   ├── monitoring/
+│       │   ├── notification/
+│       │   └── dns/
+│       │
+│       └── modules/
+│           └── product_specific_module/
+│
+├── scripts/
+│   ├── create_project.py
+│   ├── create_backend.py
+│   ├── create_tfvars.py
+│   ├── import_resource.py
+│   └── state_migrate.py
+│
+└── templates/
+    ├── common_function/
+    ├── product/
+    ├── responsibility/
+    └── terraform_root_module/
+```
+
+上記は構成例であり、使用しないAWSサービス、責務または共通機能のディレクトリは作成しなくてよい。
+
+---
+
+## 2.5 全体構成図
+
+```mermaid
+flowchart TB
+
+    ROOT["infra"]
+
+    GITHUB[".github<br/>GitHub Actions・PR設定"]
+    COMMON["common<br/>共通機能"]
+    DOCS["docs<br/>標準・設計・運用文書"]
+    MODULES["modules<br/>AWSサービス別Module"]
+    PRODUCTS["products<br/>プロダクト固有構成"]
+    SCRIPTS["scripts<br/>補助スクリプト"]
+    TEMPLATES["templates<br/>自動生成用テンプレート"]
+
+    ROOT --> GITHUB
+    ROOT --> COMMON
+    ROOT --> DOCS
+    ROOT --> MODULES
+    ROOT --> PRODUCTS
+    ROOT --> SCRIPTS
+    ROOT --> TEMPLATES
+
+    classDef orchestration fill:#dbeafe,stroke:#2563eb,color:#111827
+    classDef module fill:#dcfce7,stroke:#16a34a,color:#111827
+    classDef aws fill:#ffedd5,stroke:#ea580c,color:#111827
+    classDef cicd fill:#ede9fe,stroke:#7c3aed,color:#111827
+    classDef prohibited fill:#fee2e2,stroke:#dc2626,color:#111827
+    classDef config fill:#f3f4f6,stroke:#6b7280,color:#111827
+
+    class ROOT,COMMON,PRODUCTS orchestration
+    class MODULES module
+    class GITHUB cicd
+    class DOCS,SCRIPTS,TEMPLATES config
+```
+
+---
+
+## 2.6 `.github`ディレクトリ
+
+`.github`には、GitHub上で利用する設定を配置する。
+
+標準構成例を以下に示す。
+
+```text
+.github/
+├── workflows/
+│   └── sync_codecommit.yml
+└── pull_request_template.md
+```
+
+### `.github/workflows`
+
+GitHub ActionsのWorkflowを配置する。
+
+本標準におけるGitHub Actionsの責務は、GitHubからCodeCommitへの同期のみとする。
+
+以下はGitHub Actionsで実行しない。
+
+* `terraform plan`
+* `terraform apply`
+* `terraform destroy`
+* AWSリソースの変更
+
+### Pull Requestテンプレート
+
+Pull Request作成時に利用するテンプレートを配置する。
+
+Pull Requestテンプレートには、以下を含める。
+
+* 変更概要
+* 変更理由
+* 影響範囲
+* Plan結果
+* レビュー担当者に確認してほしい事項
+* チェック項目
+
+---
+
+## 2.7 `modules`ディレクトリ
+
+`modules`には、複数のCommon機能またはProductsから再利用するTerraform Moduleを配置する。
+
+Moduleは、最上位をAWSサービス単位とする。
+
+```text
+modules/
+├── ecs/
+├── iam/
+├── rds/
+├── s3/
+└── vpc/
+```
+
+AWSサービス配下では、リソースまたは責務単位にModuleを分割する。
+
+```text
+modules/
+└── ecs/
+    ├── autoscaling/
+    ├── capacity_provider/
+    ├── cluster/
+    ├── service/
+    └── task_definition/
+```
+
+### Module階層
+
+Moduleの階層は、最大2階層までとする。
+
+```text
+modules/<aws_service>/<responsibility>/
+```
+
+例：
+
+```text
+modules/ecs/service/
+modules/iam/role/
+modules/rds/instance/
+modules/vpc/subnet/
+```
+
+以下のような3階層以上の構成は作成しない。
+
+```text
+modules/ecs/service/blue_green/
+```
+
+追加の機能が必要な場合は、変数による切り替え、別Moduleの作成または呼び出し側での組み合わせを検討する。
+
+### 1 Module = 1責務
+
+1つのModuleは1つの責務のみを持つ。
+
+例：
+
+| Module                        | 責務                     |
+| ----------------------------- | ---------------------- |
+| `modules/ecs/cluster`         | ECS Clusterの作成         |
+| `modules/ecs/service`         | ECS Serviceの作成         |
+| `modules/ecs/task_definition` | ECS Task Definitionの作成 |
+| `modules/alb/target_group`    | Target Groupの作成        |
+| `modules/iam/role`            | IAM Roleの作成            |
+
+ECS Service Module内でIAM RoleやCloudWatch Log Groupを同時に作成する構成は採用しない。
+
+それぞれ対応するModuleを呼び出し側で組み合わせる。
+
+---
+
+## 2.8 Module構成図
+
+```mermaid
+flowchart TB
+
+    MODULES["modules"]
+
+    ECS["ecs"]
+    IAM["iam"]
+    RDS["rds"]
+    VPC["vpc"]
+
+    ECS_CLUSTER["cluster"]
+    ECS_SERVICE["service"]
+    ECS_TASK["task_definition"]
+    ECS_SCALE["autoscaling"]
+
+    IAM_ROLE["role"]
+    IAM_POLICY["policy"]
+
+    RDS_INSTANCE["instance"]
+    RDS_SUBNET["subnet_group"]
+
+    VPC_MAIN["vpc"]
+    VPC_SUBNET["subnet"]
+    VPC_ROUTE["route_table"]
+    VPC_SG["security_group"]
+
+    MODULES --> ECS
+    MODULES --> IAM
+    MODULES --> RDS
+    MODULES --> VPC
+
+    ECS --> ECS_CLUSTER
+    ECS --> ECS_SERVICE
+    ECS --> ECS_TASK
+    ECS --> ECS_SCALE
+
+    IAM --> IAM_ROLE
+    IAM --> IAM_POLICY
+
+    RDS --> RDS_INSTANCE
+    RDS --> RDS_SUBNET
+
+    VPC --> VPC_MAIN
+    VPC --> VPC_SUBNET
+    VPC --> VPC_ROUTE
+    VPC --> VPC_SG
+
+    classDef orchestration fill:#dbeafe,stroke:#2563eb,color:#111827
+    classDef module fill:#dcfce7,stroke:#16a34a,color:#111827
+    classDef aws fill:#ffedd5,stroke:#ea580c,color:#111827
+    classDef cicd fill:#ede9fe,stroke:#7c3aed,color:#111827
+    classDef prohibited fill:#fee2e2,stroke:#dc2626,color:#111827
+    classDef config fill:#f3f4f6,stroke:#6b7280,color:#111827
+
+    class MODULES,ECS,IAM,RDS,VPC module
+    class ECS_CLUSTER,ECS_SERVICE,ECS_TASK,ECS_SCALE,IAM_ROLE,IAM_POLICY,RDS_INSTANCE,RDS_SUBNET,VPC_MAIN,VPC_SUBNET,VPC_ROUTE,VPC_SG module
+```
+
+---
+
+## 2.9 `common`ディレクトリ
+
+`common`には、複数のプロダクトまたはAWSアカウント全体で利用する共通機能を配置する。
+
+環境ごとに`dev`と`prd`を分離する。
+
+```text
+common/
+├── dev/
+└── prd/
+```
+
+各環境配下では、AWSサービス単位ではなく、提供する**機能単位**でディレクトリを作成する。
+
+```text
+common/
+└── dev/
+    ├── batch_start_stop/
+    ├── backup/
+    ├── budget_alert/
+    └── log_export/
+```
+
+### 機能名の例
+
+良い例：
+
+```text
+batch_start_stop
+backup
+budget_alert
+log_export
+account_audit
+```
+
+避ける例：
+
+```text
+lambda
+eventbridge
+sns
+cloudwatch
+```
+
+Commonは「どのAWSサービスを使用しているか」ではなく、「何を実現する機能か」で分類する。
+
+### Common機能の構成
+
+例として、アプリケーションを起動・停止するバッチ機能を以下に示す。
+
+```text
+common/
+└── dev/
+    └── batch_start_stop/
+        ├── backend.hcl
+        ├── provider.tf
+        ├── versions.tf
+        ├── variables.tf
+        ├── outputs.tf
+        ├── locals.tf
+        ├── main.tf
+        └── README.md
+```
+
+`main.tf`では、複数のModuleを組み合わせて機能を構築する。
+
+```hcl
+module "eventbridge_schedule_batch_start_stop" {
+  source = "../../../modules/eventbridge/schedule"
+}
+
+module "lambda_function_batch_start_stop" {
+  source = "../../../modules/lambda/function"
+}
+
+module "iam_role_batch_start_stop" {
+  source = "../../../modules/iam/role"
+}
+```
+
+Common配下へAWSリソースを直接定義してはならない。
+
+---
+
+## 2.10 Common構成図
+
+```mermaid
+flowchart LR
+
+    COMMON["common/dev"]
+    FUNCTION["batch_start_stop"]
+
+    EVENT_MODULE["EventBridge Module"]
+    LAMBDA_MODULE["Lambda Module"]
+    IAM_MODULE["IAM Module"]
+
+    EVENT_RESOURCE["EventBridge Schedule"]
+    LAMBDA_RESOURCE["Lambda Function"]
+    IAM_RESOURCE["IAM Role / Policy"]
+
+    COMMON --> FUNCTION
+
+    FUNCTION --> EVENT_MODULE
+    FUNCTION --> LAMBDA_MODULE
+    FUNCTION --> IAM_MODULE
+
+    EVENT_MODULE --> EVENT_RESOURCE
+    LAMBDA_MODULE --> LAMBDA_RESOURCE
+    IAM_MODULE --> IAM_RESOURCE
+
+    classDef orchestration fill:#dbeafe,stroke:#2563eb,color:#111827
+    classDef module fill:#dcfce7,stroke:#16a34a,color:#111827
+    classDef aws fill:#ffedd5,stroke:#ea580c,color:#111827
+    classDef cicd fill:#ede9fe,stroke:#7c3aed,color:#111827
+    classDef prohibited fill:#fee2e2,stroke:#dc2626,color:#111827
+    classDef config fill:#f3f4f6,stroke:#6b7280,color:#111827
+
+    class COMMON,FUNCTION orchestration
+    class EVENT_MODULE,LAMBDA_MODULE,IAM_MODULE module
+    class EVENT_RESOURCE,LAMBDA_RESOURCE,IAM_RESOURCE aws
+```
+
+---
+
+## 2.11 `products`ディレクトリ
+
+`products`には、各プロダクト固有のAWSインフラを配置する。
+
+構成順序は以下とする。
+
+```text
+products/<project>/<environment>/<responsibility>/
+```
+
+例：
+
+```text
+products/kintai/dev/compute/
+products/kintai/prd/database/
+```
+
+### 環境分離
+
+各プロダクト配下には、`dev`および`prd`を作成する。
+
+```text
+products/
+└── kintai/
+    ├── dev/
+    └── prd/
+```
+
+### 責務ディレクトリ
+
+環境配下では、責務単位にディレクトリを分割する。
+
+```text
+products/
+└── kintai/
+    └── dev/
+        ├── terraform.tfvars
+        ├── network/
+        ├── security/
+        ├── compute/
+        ├── database/
+        ├── monitoring/
+        ├── notification/
+        └── dns/
+```
+
+標準責務は以下のとおりである。
+
+| 責務             | 主な管理対象                                                          |
+| -------------- | --------------------------------------------------------------- |
+| `network`      | VPC、Subnet、Route Table、ALB、Target Group、Listener、Security Group |
+| `security`     | IAM、KMS、Resource Policy                                         |
+| `compute`      | ECS、ECR、Lambda、CloudWatch Log Group                             |
+| `database`     | RDS、DynamoDB、ElastiCache                                        |
+| `monitoring`   | CloudWatch Alarm                                                |
+| `notification` | SNS、EventBridge、通知先                                             |
+| `dns`          | Route 53、ACM                                                    |
+
+CloudWatch Alarmは`monitoring`で管理する。
+
+SNSやその他の通知先は`notification`で管理する。
+
+CloudWatch Log Groupは、利用元リソースに近い`compute`などで管理する。
+
+`dns`は必要なプロダクトのみ作成する。
+
+すべての責務ディレクトリを形式的に作成する必要はない。
+
+---
+
+## 2.12 Products構成図
+
+```mermaid
+flowchart TB
+
+    PRODUCTS["products"]
+    PROJECT["kintai"]
+
+    DEV["dev"]
+    PRD["prd"]
+
+    DEV_TFVARS["terraform.tfvars"]
+    DEV_NETWORK["network"]
+    DEV_SECURITY["security"]
+    DEV_COMPUTE["compute"]
+    DEV_DATABASE["database"]
+    DEV_MONITOR["monitoring"]
+    DEV_NOTIFY["notification"]
+
+    PRD_TFVARS["terraform.tfvars"]
+    PRD_NETWORK["network"]
+    PRD_SECURITY["security"]
+    PRD_COMPUTE["compute"]
+    PRD_DATABASE["database"]
+    PRD_MONITOR["monitoring"]
+    PRD_NOTIFY["notification"]
+
+    PRODUCTS --> PROJECT
+    PROJECT --> DEV
+    PROJECT --> PRD
+
+    DEV --> DEV_TFVARS
+    DEV --> DEV_NETWORK
+    DEV --> DEV_SECURITY
+    DEV --> DEV_COMPUTE
+    DEV --> DEV_DATABASE
+    DEV --> DEV_MONITOR
+    DEV --> DEV_NOTIFY
+
+    PRD --> PRD_TFVARS
+    PRD --> PRD_NETWORK
+    PRD --> PRD_SECURITY
+    PRD --> PRD_COMPUTE
+    PRD --> PRD_DATABASE
+    PRD --> PRD_MONITOR
+    PRD --> PRD_NOTIFY
+
+    classDef orchestration fill:#dbeafe,stroke:#2563eb,color:#111827
+    classDef module fill:#dcfce7,stroke:#16a34a,color:#111827
+    classDef aws fill:#ffedd5,stroke:#ea580c,color:#111827
+    classDef cicd fill:#ede9fe,stroke:#7c3aed,color:#111827
+    classDef prohibited fill:#fee2e2,stroke:#dc2626,color:#111827
+    classDef config fill:#f3f4f6,stroke:#6b7280,color:#111827
+
+    class PRODUCTS,PROJECT,DEV,PRD,DEV_NETWORK,DEV_SECURITY,DEV_COMPUTE,DEV_DATABASE,DEV_MONITOR,DEV_NOTIFY,PRD_NETWORK,PRD_SECURITY,PRD_COMPUTE,PRD_DATABASE,PRD_MONITOR,PRD_NOTIFY orchestration
+    class DEV_TFVARS,PRD_TFVARS config
+```
+
+---
+
+## 2.13 プロダクト専用Module
+
+Moduleは、原則として`modules`配下の共通Moduleを使用する。
+
+ただし、特定のプロダクトだけで使用する特殊な仕様があり、共通Moduleとしての汎用化が適切でない場合は、プロダクト配下に専用Moduleを作成できる。
+
+```text
+products/
+└── kintai/
+    ├── modules/
+    │   └── specialized_processing/
+    ├── dev/
+    └── prd/
+```
+
+プロダクト専用Moduleを作成する場合は、以下を確認する。
+
+* 共通Moduleで実現できないこと
+* 他プロダクトで再利用する予定がないこと
+* 共通Moduleへ追加すると責務が複雑になること
+* 専用Moduleを作成する理由がREADMEに記載されていること
+
+将来複数プロダクトで使用することになった場合は、`modules`配下への移動を検討する。
+
+---
+
+## 2.14 `docs`ディレクトリ
+
+`docs`には、Terraform Framework Standardおよび関連文書を配置する。
+
+標準構成例を以下に示す。
+
+```text
+docs/
+├── standard/
+├── adr/
+├── architecture/
+└── operation/
+```
+
+| ディレクトリ          | 管理内容                           |
+| --------------- | ------------------------------ |
+| `standard/`     | Terraform Framework Standard本文 |
+| `adr/`          | Architecture Decision Record   |
+| `architecture/` | システムおよびTerraform構成図            |
+| `operation/`    | 運用手順、障害対応手順                    |
+
+Markdown形式を標準とする。
+
+Mermaid図はMarkdown内へ直接記載するか、別ファイルとして管理する。
+
+---
+
+## 2.15 `scripts`ディレクトリ
+
+`scripts`には、Terraformの開発・運用を支援する補助スクリプトを配置する。
+
+例：
+
+```text
+scripts/
+├── create_project.py
+├── create_backend.py
+├── create_tfvars.py
+├── import_resource.py
+└── state_migrate.py
+```
+
+主な用途は以下のとおりである。
+
+* 新規プロダクト構成の生成
+* Backend設定ファイルの生成
+* `terraform.tfvars`の生成
+* Importコマンドの補助
+* State移行作業の補助
+* CI/CD変更検知の補助
+* 一括Plan対象の抽出
+
+AWSリソースを定義するTerraformコードは`scripts`へ配置しない。
+
+Terraformの正式なApplyを、ローカルスクリプトから実行する構成は採用しない。
+
+---
+
+## 2.16 `templates`ディレクトリ
+
+`templates`には、Pythonスクリプトなどから利用するファイル生成用テンプレートを配置する。
+
+```text
+templates/
+├── common_function/
+├── product/
+├── responsibility/
+└── terraform_root_module/
+```
+
+テンプレートから生成する対象例を以下に示す。
+
+* プロダクトの`dev`・`prd`構成
+* Common機能ディレクトリ
+* 責務ディレクトリ
+* `backend.hcl`
+* `provider.tf`
+* `versions.tf`
+* `variables.tf`
+* `outputs.tf`
+* `locals.tf`
+* `main.tf`
+* `README.md`
+* `terraform.tfvars.example`
+
+自動生成ツールの詳細仕様は、実装時に別途定義する。
+
+---
+
+## 2.17 オーケストレーション層とModule層
+
+CommonおよびProductsは、Moduleを呼び出すオーケストレーション層とする。
+
+```mermaid
+flowchart TB
+
+    subgraph ORCHESTRATION["オーケストレーション層"]
+        COMMON["Common<br/>共通機能単位"]
+        PRODUCTS["Products<br/>プロダクト責務単位"]
+    end
+
+    subgraph MODULES["Module層"]
+        ECS["ECS Module"]
+        IAM["IAM Module"]
+        VPC["VPC Module"]
+        RDS["RDS Module"]
+        CW["CloudWatch Module"]
+    end
+
+    subgraph AWS["AWSリソース"]
+        ECS_RESOURCE["ECS"]
+        IAM_RESOURCE["IAM"]
+        VPC_RESOURCE["VPC"]
+        RDS_RESOURCE["RDS"]
+        CW_RESOURCE["CloudWatch"]
+    end
+
+    DIRECT_RESOURCE["Common / Productsへの<br/>resource直書き"]
+
+    COMMON --> ECS
+    COMMON --> IAM
+    COMMON --> CW
+
+    PRODUCTS --> ECS
+    PRODUCTS --> IAM
+    PRODUCTS --> VPC
+    PRODUCTS --> RDS
+    PRODUCTS --> CW
+
+    ECS --> ECS_RESOURCE
+    IAM --> IAM_RESOURCE
+    VPC --> VPC_RESOURCE
+    RDS --> RDS_RESOURCE
+    CW --> CW_RESOURCE
+
+    DIRECT_RESOURCE -.禁止.-> AWS
+
+    classDef orchestration fill:#dbeafe,stroke:#2563eb,color:#111827
+    classDef module fill:#dcfce7,stroke:#16a34a,color:#111827
+    classDef aws fill:#ffedd5,stroke:#ea580c,color:#111827
+    classDef cicd fill:#ede9fe,stroke:#7c3aed,color:#111827
+    classDef prohibited fill:#fee2e2,stroke:#dc2626,color:#111827
+    classDef config fill:#f3f4f6,stroke:#6b7280,color:#111827
+
+    class COMMON,PRODUCTS orchestration
+    class ECS,IAM,VPC,RDS,CW module
+    class ECS_RESOURCE,IAM_RESOURCE,VPC_RESOURCE,RDS_RESOURCE,CW_RESOURCE aws
+    class DIRECT_RESOURCE prohibited
+```
+
+---
+
+## 2.18 ファイルおよびディレクトリ名
+
+ファイル名とディレクトリ名は、`snake_case`で統一する。
+
+良い例：
+
+```text
+task_definition/
+batch_start_stop/
+remote_state.tf
+task_definition_variables.tf
+```
+
+避ける例：
+
+```text
+task-definition/
+BatchStartStop/
+remoteState.tf
+TaskDefinitionVariables.tf
+```
+
+Terraform識別子、ファイル名およびディレクトリ名を`snake_case`で統一することで、テンプレート生成と検索を容易にする。
+
+---
+
+## 2.19 ディレクトリとStateの関係
+
+Productsの各責務ディレクトリおよびCommonの各機能ディレクトリは、独立したTerraform Root Moduleとする。
+
+例：
+
+```text
+products/kintai/dev/network/
+products/kintai/dev/compute/
+common/dev/batch_start_stop/
+```
+
+各Root Moduleは、独立した以下の要素を持つ。
+
+* Backend
+* Terraform State
+* Provider設定
+* Variables
+* Module呼び出し
+* Outputs
+* README
+
+原則として、1つのRoot Moduleディレクトリが1つのStateに対応する。
+
+詳細は第3章「State・Backend設計」で定義する。
+
+---
+
+## 2.20 禁止事項
+
+ディレクトリ設計では、以下を禁止する。
+
+### Module階層の過剰な深掘り
+
+```text
+modules/ecs/service/blue_green/production/
+```
+
+### CommonをAWSサービス単位で分類すること
+
+```text
+common/dev/lambda/
+common/dev/eventbridge/
+```
+
+### ProductsをAWSサービスごとに直接分割すること
+
+```text
+products/kintai/dev/ecs/
+products/kintai/dev/rds/
+```
+
+Productsはサービス単位ではなく、`compute`や`database`などの責務単位で管理する。
+
+### CommonまたはProductsへのResource直書き
+
+```hcl
+resource "aws_ecs_service" "example" {
+}
+```
+
+### 同一責務を複数ディレクトリに分散すること
+
+例として、同じECS Serviceの設定を`compute`と`network`へ分散してはならない。
+
+### 未使用ディレクトリの形式的な作成
+
+利用しない`dns`や`database`などを、空ディレクトリとして作成する必要はない。
+
+---
+
+## 2.21 新規プロダクト追加
+
+新しいプロダクトを追加する場合は、以下の構成を作成する。
+
+```text
+products/
+└── <project>/
+    ├── dev/
+    │   ├── terraform.tfvars
+    │   └── <required_responsibilities>/
+    └── prd/
+        ├── terraform.tfvars
+        └── <required_responsibilities>/
+```
+
+必要な責務だけを作成する。
+
+既存プロダクトの構成を直接コピーして変更するのではなく、将来的には`templates`および`scripts`を使用して標準構成を生成する。
+
+---
+
+## 2.22 新規Common機能追加
+
+新しい共通機能を追加する場合は、環境ごとに機能ディレクトリを作成する。
+
+```text
+common/
+├── dev/
+│   └── <function_name>/
+└── prd/
+    └── <function_name>/
+```
+
+devとprdで同一機能を使用しない場合は、必要な環境にのみ作成できる。
+
+機能ディレクトリ内では、既存の共通Moduleを組み合わせて実装する。
+
+---
+
+## 2.23 新規Module追加
+
+新しいAWSサービスまたはリソース責務を追加する場合は、以下の形式とする。
+
+```text
+modules/<aws_service>/<responsibility>/
+```
+
+新しいModuleを作成する前に、以下を確認する。
+
+* 既存Moduleで実現できないか
+* 1つの責務に限定されているか
+* 複数プロダクトで再利用可能か
+* Inputが過剰に増えていないか
+* Outputが必要最小限か
+* Moduleから別Moduleを呼んでいないか
+
+---
+
+## 2.24 設計原則
+
+本章の設計原則を以下にまとめる。
+
+* リポジトリを`.github`、`common`、`docs`、`modules`、`products`、`scripts`、`templates`に分離する。
+* ModuleはAWSサービス・単一責務単位で管理する。
+* Moduleの階層は最大2階層とする。
+* CommonはAWSサービス単位ではなく、共通機能単位で管理する。
+* Productsはプロダクト・環境・責務単位で管理する。
+* CommonとProductsはオーケストレーション層とする。
+* AWSリソースはModule内でのみ定義する。
+* 環境は`dev`と`prd`に分離する。
+* 責務ディレクトリは独立したTerraform Root Moduleとする。
+* 使用しないディレクトリは作成しない。
+* ファイル名とディレクトリ名は`snake_case`で統一する。
+* 特殊な要件に限り、プロダクト専用Moduleの作成を許可する。
+* Pythonによる自動生成を考慮した規則性のある構成とする。

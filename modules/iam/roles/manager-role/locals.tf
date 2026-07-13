@@ -1,57 +1,61 @@
 locals {
   role_name = var.role_name
 
-  # 許可するアクション（ワイルドカード）
-  terraform_allowed_actions = [
-    # EC2
-    "ec2:*",
-    # RDS
-    "rds:*",
-    # ALB/ELB
-    "elasticloadbalancing:*",
-    # DynamoDB
-    "dynamodb:*",
-    # Lambda
-    "lambda:*",
-    # CloudWatch
-    "cloudwatch:*",
-    "logs:*",
-    # S3
-    "s3:*",
-    # CodeCommit
-    "codecommit:*",
-    # CodeBuild
-    "codebuild:*",
-    # CodeDeploy
-    "codedeploy:*",
-    # CodePipeline
-    "codepipeline:*",
-    # SNS
-    "sns:*",
-    # SQS
-    "sqs:*",
-    # API Gateway
-    "apigateway:*",
-    # CloudFront
-    "cloudfront:*",
-    # Route53
-    "route53:*",
-    # AutoScaling
-    "autoscaling:*",
-    # Application Auto Scaling
-    "application-autoscaling:*",
-    # ElastiCache
-    "elasticache:*",
-    # STS（AssumeRole 不可）
+  # 運用者向け最小権限（閲覧 + 限定操作）
+  manager_allowed_actions = [
+    # 共通
     "sts:GetCallerIdentity",
-    # リソースタグ付け
-    "tag:*",
-    # 追加の補助サービス
-    "resourcegroupstaggingapi:*",
+    "tag:GetResources",
+    "resourcegroupstaggingapi:GetResources",
+    "resourcegroupstaggingapi:GetTagKeys",
+    "resourcegroupstaggingapi:GetTagValues",
     "ssm:GetParameter",
     "ssm:GetParameters",
     "ssm:GetParametersByPath",
     "ssm:DescribeParameters",
+    # EC2 / RDS / ALB
+    "ec2:Describe*",
+    "rds:Describe*",
+    "elasticloadbalancing:Describe*",
+    # ECS（閲覧 + 限定操作）
+    "ecs:Describe*",
+    "ecs:List*",
+    "ecs:UpdateService",
+    # DynamoDB
+    "dynamodb:Describe*",
+    "dynamodb:List*",
+    "dynamodb:Query",
+    "dynamodb:Scan",
+    # Lambda
+    "lambda:Get*",
+    "lambda:List*",
+    # CloudWatch / Logs
+    "cloudwatch:Get*",
+    "cloudwatch:List*",
+    "cloudwatch:Describe*",
+    "logs:Describe*",
+    "logs:Get*",
+    "logs:FilterLogEvents",
+    "logs:StartQuery",
+    "logs:StopQuery",
+    # S3
+    "s3:ListAllMyBuckets",
+    "s3:ListBucket",
+    "s3:GetBucketLocation",
+    "s3:GetBucketTagging",
+    "s3:GetObject",
+    # ECR
+    "ecr:Describe*",
+    "ecr:List*",
+    "ecr:BatchGetImage",
+    "ecr:GetDownloadUrlForLayer",
+    # Code 系
+    "codecommit:Get*",
+    "codecommit:List*",
+    "codecommit:BatchGet*",
+    "codepipeline:Get*",
+    "codepipeline:List*",
+    "codepipeline:StartPipelineExecution",
   ]
 
   # 拒否するアクション（環境が壊れることを防ぐため）
@@ -72,8 +76,7 @@ locals {
     "ec2:DeleteNetworkAcl",
     "ec2:DeleteNetworkAclEntry",
     "ec2:ModifyNetworkInterfaceAttribute",
-    # ECS（削除・変更）
-    "ecs:UpdateService",
+    # ECS（削除）
     "ecs:DeleteService",
     "ecs:DeregisterTaskDefinition",
     # IAM

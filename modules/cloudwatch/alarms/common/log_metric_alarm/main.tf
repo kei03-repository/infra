@@ -1,6 +1,6 @@
 resource "aws_cloudwatch_log_metric_filter" "this" {
   name           = var.filter_name
-  log_group_name  = var.log_group_name
+  log_group_name = var.log_group_name
   pattern        = var.filter_pattern
 
   metric_transformation {

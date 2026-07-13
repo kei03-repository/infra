@@ -1,20 +1,25 @@
 variable "product_name" {
-  type = string
+  description = "Input variable: product_name."
+  type        = string
 }
 
 variable "environment" {
-  type = string
+  description = "Input variable: environment."
+  type        = string
 }
 
 variable "vpc_id" {
-  type = string
+  description = "Input variable: vpc_id."
+  type        = string
 }
 
 variable "security_group_name" {
-  type = string
+  description = "Input variable: security_group_name."
+  type        = string
 }
 
 variable "ingress_rules" {
+  description = "Input variable: ingress_rules."
   type = list(object({
     from_port       = number
     to_port         = number
@@ -25,6 +30,7 @@ variable "ingress_rules" {
 }
 
 variable "egress_rules" {
+  description = "Input variable: egress_rules."
   type = list(object({
     from_port       = number
     to_port         = number
