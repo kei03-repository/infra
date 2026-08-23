@@ -3,9 +3,8 @@ name: Sync CodeCommit Mirror
 on:
   push:
     branches:
-      - '**'
-    tags:
-      - '*'
+      - 'main'
+      - 'develop'
     paths:
       - 'common/**'
       - 'products/**'
@@ -24,10 +23,137 @@ env:
 
 # 2つのリポジトリへ同期される構成（プロダクトが増えた場合は、matrixに追加することで対応可能）:
 # - common → CodeCommit: common
-# - products/kintai → CodeCommit: kintai
+# - products/kintai → CodeCommit: infra/kintai
 
 jobs:
+  validate:
+    if: github.repository_owner != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          role-session-name: github-terraform-validate
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive
+
+      - name: Detect validation targets
+        id: targets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          find_root_with_main_tf() {
+            local path="$1"
+            local dir
+            dir="$(dirname "$path")"
+
+            while [[ "$dir" != "." && "$dir" != "/" ]]; do
+              if [[ -f "$dir/main.tf" ]]; then
+                echo "$dir"
+                return 0
+              fi
+              dir="$(dirname "$dir")"
+            done
+
+            return 1
+          }
+
+          BASE_REF="${{ github.event.before }}"
+          HEAD_REF="${{ github.sha }}"
+          ZERO_SHA="0000000000000000000000000000000000000000"
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            CHANGED_FILES="$(git ls-files common products modules)"
+          else
+            if [[ -z "$BASE_REF" || "$BASE_REF" == "$ZERO_SHA" ]]; then
+              BASE_REF="$(git rev-list --max-count=1 "${HEAD_REF}^" || true)"
+            fi
+
+            if [[ -n "$BASE_REF" ]]; then
+              CHANGED_FILES="$(git diff --name-only "$BASE_REF" "$HEAD_REF")"
+            else
+              CHANGED_FILES="$(git ls-files common products modules)"
+            fi
+          fi
+
+          declare -A TARGET_SET=()
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+
+            case "$file" in
+              common/*|products/*|modules/*)
+                ;;
+              *)
+                continue
+                ;;
+            esac
+
+            case "$file" in
+              *.tf|*.tfvars|*.hcl)
+                ;;
+              *)
+                continue
+                ;;
+            esac
+
+            if [[ "$file" == modules/* ]]; then
+              for module_dir in products/kintai/modules/*; do
+                if [[ -f "$module_dir/main.tf" ]]; then
+                  TARGET_SET["$module_dir"]=1
+                fi
+              done
+              continue
+            fi
+
+            if root="$(find_root_with_main_tf "$file")"; then
+              TARGET_SET["$root"]=1
+            fi
+          done <<< "$CHANGED_FILES"
+
+          if [[ ${#TARGET_SET[@]} -eq 0 ]]; then
+            echo "has_targets=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          mapfile -t SORTED_TARGETS < <(printf '%s\n' "${!TARGET_SET[@]}" | sort)
+          {
+            echo "has_targets=true"
+            echo "targets<<EOF"
+            printf '%s\n' "${SORTED_TARGETS[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Terraform validate and plan (strict)
+        if: steps.targets.outputs.has_targets == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r target; do
+            [[ -z "$target" ]] && continue
+            echo "Validating and planning: $target"
+            terraform -chdir="$target" init -backend=false -input=false
+            terraform -chdir="$target" validate
+            terraform -chdir="$target" plan -input=false -lock=false -refresh=false -no-color -out=tfplan.binary
+            rm -f "$target/tfplan.binary"
+          done <<< "${{ steps.targets.outputs.targets }}"
+
   mirror:
+    needs:
+      - validate
     if: github.repository_owner != 'dependabot[bot]'
     runs-on: ubuntu-latest
     strategy:
@@ -36,7 +162,7 @@ jobs:
           - path: common
             repository: common
           - path: products/kintai
-            repository: kintai
+            repository: infra
       fail-fast: false
     steps:
       - name: Validate required configuration
@@ -66,7 +192,11 @@ jobs:
         working-directory: repo
         run: |
           pip install git-filter-repo --quiet
-          git filter-repo --subdirectory-filter "${{ matrix.path }}"
+          if [[ "${{ matrix.repository }}" == "common" ]]; then
+            git filter-repo --subdirectory-filter "${{ matrix.path }}"
+          else
+            git filter-repo --path "${{ matrix.path }}" --to-subdirectory-filter kintai
+          fi
 
       - name: Push to CodeCommit
         working-directory: repo
@@ -74,5 +204,8 @@ jobs:
           git config credential.helper '!aws codecommit credential-helper $@'
           git config credential.UseHttpPath true
           git remote add codecommit "https://git-codecommit.${AWS_REGION}.amazonaws.com/v1/repos/${{ matrix.repository }}"
-          git push codecommit --all --force
-          git push codecommit --tags --force
+          for branch in main develop; do
+            if git show-ref --verify --quiet "refs/heads/${branch}"; then
+              git push codecommit "refs/heads/${branch}:refs/heads/${branch}" --force
+            fi
+          done

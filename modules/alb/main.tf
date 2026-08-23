@@ -4,22 +4,22 @@ resource "aws_lb" "this" {
   load_balancer_type = "application"
   security_groups    = [var.alb_security_group_id]
   subnets            = var.subnet_ids
-  tags               = {
+  tags = {
     Name        = "${var.environment}--${var.product_name}--alb"
     ProductName = var.product_name
   }
 }
 
 resource "aws_lb_target_group" "this" {
-  name               = substr("${var.environment}-${var.product_name}-${var.deployment_color}-tg", 0, 32)
-  port               = var.target_port
-  protocol           = "HTTP"
-  target_type        = "ip"
-  vpc_id             = var.vpc_id
+  name        = substr("${var.environment}-${var.product_name}-${var.deployment_color}-tg", 0, 32)
+  port        = var.target_port
+  protocol    = "HTTP"
+  target_type = "ip"
+  vpc_id      = var.vpc_id
 
   health_check {
-    path        = var.health_check_path
-    matcher     = "200-399"
+    path    = var.health_check_path
+    matcher = "200-399"
   }
 
   tags = {

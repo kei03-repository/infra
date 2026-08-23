@@ -1,29 +1,36 @@
 variable "product_name" {
-  type = string
+  description = "Input variable: product_name."
+  type        = string
 }
 
 variable "environment" {
-  type = string
+  description = "Input variable: environment."
+  type        = string
 }
 
 variable "vpc_id" {
-  type = string
+  description = "Input variable: vpc_id."
+  type        = string
 }
 
 variable "subnet_ids" {
-  type = list(string)
+  description = "Input variable: subnet_ids."
+  type        = list(string)
 }
 
 variable "alb_security_group_id" {
-  type = string
+  description = "Input variable: alb_security_group_id."
+  type        = string
 }
 
 variable "certificate_arn" {
-  type = string
+  description = "Input variable: certificate_arn."
+  type        = string
 }
 
 variable "deployment_color" {
-  type = string
+  description = "Input variable: deployment_color."
+  type        = string
 
   validation {
     condition     = contains(["blue", "green"], var.deployment_color)
@@ -32,11 +39,13 @@ variable "deployment_color" {
 }
 
 variable "target_port" {
-  type    = number
-  default = 8080
+  description = "Input variable: target_port."
+  type        = number
+  default     = 8080
 }
 
 variable "health_check_path" {
-  type    = string
-  default = "/"
+  description = "Input variable: health_check_path."
+  type        = string
+  default     = "/"
 }
